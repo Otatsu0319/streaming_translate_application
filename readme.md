@@ -1,4 +1,5 @@
 # streaming translate application
+
 PC上で流れる音声をキャプチャしリアルタイム翻訳を実行するアプリ
 ユースケース : youtube Live のリアルタイム自動翻訳
 
@@ -7,6 +8,8 @@ PC上で流れる音声をキャプチャしリアルタイム翻訳を実行す
 1. 音声分離
 
    認識精度向上に必要な部分 今は実装していない
+   話者分離 : ConvTasNet, sepformer, VoiceFilter
+   ボーカル抽出 : Spleeter, Demucs
 
 2. 音声認識
 
@@ -25,7 +28,19 @@ PC上で流れる音声をキャプチャしリアルタイム翻訳を実行す
 - ステレオミキサー等を利用した録音
 
   開発環境にはVoicemeeterが入っているのでこれを使う
+  python-sounddeviceで簡単に利用可能
 
 - 拡張機能を利用した録音
 
   chrome.tabCaptureを使うとできるらしい
+
+## 開発メモ
+
+既存のclient -> serverに翻訳コードを追記するだけでそれらしきものは動いた
+バッファをどうするかは重要になりそう 今は結構レイテンシが高い
+またGPUに処理がオフロードできていないため他の作業に支障をきたしそう
+
+## 謝辞
+
+サーバーコードの公開に感謝します\
+https://github.com/TadaoYamaoka/StreamingWhisper/blob/master/WhisperServer/WhisperServer.py

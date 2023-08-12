@@ -62,7 +62,7 @@ def recognize():
                 **inputs, forced_bos_token_id=tokenizer.lang_code_to_id["jpn_Jpan"], max_length=150,
                 num_beams=5,
             )
-            print(tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0])
+            print("transrate: ", tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0])
 
 
 th_recognize = threading.Thread(target=recognize, daemon=True)

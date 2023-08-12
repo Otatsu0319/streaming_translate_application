@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../whisper"
+		},
+		{
+			"path": "../nllb-200"
+		},
+		{
+			"path": "../voice_separation"
+		}
+	],
+	"settings": {}
+}

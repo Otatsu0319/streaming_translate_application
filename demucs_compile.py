@@ -33,24 +33,18 @@ def get_model(url = URL):
 
 if __name__ == "__main__":
     model = get_model()
-    model.cpu()
+    model.to("cuda")
     model.eval()
     
     segment = model.segment
     segment_length: int = int(model.samplerate * segment)
-    example_tensor = torch.rand(1, model.audio_channels, segment_length) # (1, 2, 343980) # Batch, Channels, Times(audio signal)
-    
-    ref = example_tensor.mean(1)
-    example_tensor -= ref.mean()
-    example_tensor /= ref.std()
+    example_tensor = torch.rand((1, model.audio_channels, segment_length), device="cuda") # (1, 2, 343980) # Batch, Channels, Times(audio signal)
+  
+    with torch.no_grad():
+        torch.jit.trace(model, example_inputs=example_tensor, check_trace=False).save("./demucs_models/demucs_ts.pt")
 
     # get model info (need to inference)
     print(f"model_samplerate={model.samplerate}")
     print(f"model_audio_channels={model.audio_channels}")
     print(f"model_souces={model.sources}") 
     print(f"model_segment={model.segment}")
-
-    print(example_tensor.shape, model.samplerate)
-    
-    with torch.no_grad():
-        torch.jit.trace(model, example_inputs=example_tensor).save("./demucs_models/demucs_ts.pt")

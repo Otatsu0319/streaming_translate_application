@@ -1,9 +1,11 @@
 import logging
 import socket
 
+import librosa
 import numpy as np
 import pyvban
 import pyvban.subprotocols
+import soundfile as sf
 from pyvban.subprotocols import audio as pyvban_audio
 
 
@@ -82,3 +84,29 @@ class VBANStreamingReceiver:
                 yield data
 
         yield self._buff
+
+
+class WavStreamReceiver:
+    def __init__(self, filename: str, logger: logging.Logger = None):
+        self._logger = logger if logger else logging.getLogger(f"WAV_Receiver_{filename}")
+
+        # TODO: make this dynamic
+        self.current_sample_rate = 48000
+        self.current_channles = 1
+        self.chunk_size = 2048
+
+        self.data, sr = sf.read(filename, always_2d=True)
+        if sr != self.current_sample_rate:
+            raise NotImplementedError("This sample rate is not supported")
+        self.data = librosa.to_mono(self.data.T)
+
+        self._running = True
+
+    def recv_generator(self):
+        i = 0
+        while self._running:
+            data = self.data[i : i + self.chunk_size]
+            i += self.chunk_size
+            if len(data) == 0:
+                break
+            yield data

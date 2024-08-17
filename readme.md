@@ -39,8 +39,3 @@ PC上で流れる音声をキャプチャしリアルタイム翻訳を実行す
 既存のclient -> serverに翻訳コードを追記するだけでそれらしきものは動いた
 バッファをどうするかは重要になりそう 今は結構レイテンシが高い
 またGPUに処理がオフロードできていないため他の作業に支障をきたしそう
-
-## 謝辞
-
-サーバーコードの公開に感謝します\
-https://github.com/TadaoYamaoka/StreamingWhisper/blob/master/WhisperServer/WhisperServer.py

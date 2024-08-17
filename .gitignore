@@ -1,0 +1,6 @@
+.hypothesis
+demucs_models/
+pretrained_models/
+whisper_checkpoints/
+results/
+audio_samples/

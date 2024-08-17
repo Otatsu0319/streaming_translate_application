@@ -81,9 +81,9 @@ class VBANStreamingReceiver:
             if len(self._buff) >= self.chunk_size:
                 data = self._buff[: self.chunk_size]
                 self._buff = self._buff[self.chunk_size :]
-                yield data
+                yield np.array(data)
 
-        yield self._buff
+        yield np.array(self._buff)
 
 
 class WavStreamReceiver:

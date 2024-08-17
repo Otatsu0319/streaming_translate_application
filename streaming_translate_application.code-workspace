@@ -11,7 +11,9 @@
 		},
 		{
 			"path": "../voice_separation"
+		},
+		{
+			"path": "../faster_whisper"
 		}
-	],
-	"settings": {}
+	]
 }

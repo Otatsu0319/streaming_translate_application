@@ -23,7 +23,7 @@ class VBANStreamingReceiver:
         # TODO: make this dynamic
         self.current_sample_rate = 16000
         self.current_channles = 1
-        self.chunk_size = 2048
+        self.chunk_size = 512
 
         self._running = True
         self._buff = []
@@ -93,7 +93,7 @@ class WavStreamReceiver:
         # TODO: make this dynamic
         self.current_sample_rate = 16000
         self.current_channles = 1
-        self.chunk_size = 2048
+        self.chunk_size = 512
 
         self.data, sr = sf.read(filename, always_2d=True)
         if sr != self.current_sample_rate:

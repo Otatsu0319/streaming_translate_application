@@ -21,7 +21,7 @@ class VBANStreamingReceiver:
         self._socket.bind(("0.0.0.0", port))
 
         # TODO: make this dynamic
-        self.current_sample_rate = 48000
+        self.current_sample_rate = 16000
         self.current_channles = 1
         self.chunk_size = 2048
 
@@ -91,14 +91,15 @@ class WavStreamReceiver:
         self._logger = logger if logger else logging.getLogger(f"WAV_Receiver_{filename}")
 
         # TODO: make this dynamic
-        self.current_sample_rate = 48000
+        self.current_sample_rate = 16000
         self.current_channles = 1
         self.chunk_size = 2048
 
         self.data, sr = sf.read(filename, always_2d=True)
         if sr != self.current_sample_rate:
-            raise NotImplementedError("This sample rate is not supported")
+            self._logger.debug("This sample rate is not supported. Resampling...")
         self.data = librosa.to_mono(self.data.T)
+        self.data = librosa.resample(self.data, orig_sr=sr, target_sr=self.current_sample_rate)
 
         self._running = True
 

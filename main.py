@@ -71,6 +71,7 @@ if __name__ == "__main__":
 
         speech_prob = silero_model(chunk, SAMPLING_RATE).item()
 
+        # TODO: voice separation
         probs.append(speech_prob)
 
         if not is_speech and speech_prob > vad_threshold:

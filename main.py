@@ -36,10 +36,11 @@ if __name__ == "__main__":
             speech = speech_queue.get()
             speech = np.array(speech)
 
-            segments, _ = whisper_model.transcribe(speech, language="en")
+            segments, _ = whisper_model.transcribe(
+                speech, language="en", log_prob_threshold=transcribe_log_probability_threshold
+            )
             for segment in segments:
-                if segment.avg_logprob > transcribe_log_probability_threshold:
-                    print("[%.2fs -> %.2fs] %s p:%s" % (segment.start, segment.end, segment.text, segment.avg_logprob))
+                print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
 
     th = Thread(target=transcribe_thread)
     th.start()

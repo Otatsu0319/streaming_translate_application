@@ -4,3 +4,4 @@ pretrained_models/
 whisper_checkpoints/
 results/
 audio_samples/
+__pycache__/

@@ -125,7 +125,9 @@ class WavStreamReceiver(StreamReceiver):
         self.data, sr = sf.read(filename, always_2d=True)
         if sr != self.current_sample_rate:
             self._logger.debug("This sample rate is not supported. Resampling...")
-        self.data = librosa.to_mono(self.data.T)
+        if self.current_channels == 1:
+            self._logger.debug("This channels is not supported. Convert to mono...")
+            self.data = librosa.to_mono(self.data.T)
         self.data = librosa.resample(self.data, orig_sr=sr, target_sr=self.current_sample_rate)
 
     def recv_generator(self):

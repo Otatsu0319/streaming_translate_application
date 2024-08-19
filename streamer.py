@@ -9,9 +9,39 @@ import soundfile as sf
 from pyvban.subprotocols import audio as pyvban_audio
 
 
-class VBANStreamingReceiver:
-    def __init__(self, sender_ip: str, stream_name: str, port: int, logger: logging.Logger = None):
+class StreamReceiver:
+    def __init__(
+        self,
+        current_sample_rate: int,
+        current_channels: int,
+        chunk_size: int,
+        logger: logging.Logger = None,
+    ):
+        self._logger = logger if logger else logging.getLogger("StreamReceiver")
+
+        self.current_sample_rate = current_sample_rate
+        self.current_channels = current_channels
+        self.chunk_size = chunk_size
+
+        self._running = True
+
+    def recv_generator(self):
+        raise NotImplementedError()
+
+
+class VBANStreamingReceiver(StreamReceiver):
+    def __init__(
+        self,
+        sender_ip: str,
+        stream_name: str,
+        port: int,
+        current_sample_rate: int = 16000,
+        current_channels: int = 1,
+        chunk_size: int = 512,
+        logger: logging.Logger = None,
+    ):
         self._logger = logger if logger else logging.getLogger(f"VBAN_Receiver_{sender_ip}_{port}_{stream_name}")
+        super().__init__(current_sample_rate, current_channels, chunk_size, logger=self._logger)
 
         self._sender_ip = sender_ip
         self._stream_name = stream_name
@@ -20,12 +50,6 @@ class VBANStreamingReceiver:
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind(("0.0.0.0", port))
 
-        # TODO: make this dynamic
-        self.current_sample_rate = 16000
-        self.current_channles = 1
-        self.chunk_size = 512
-
-        self._running = True
         self._buff = []
 
     def _check_pyaudio(self, header):
@@ -86,22 +110,23 @@ class VBANStreamingReceiver:
         yield np.array(self._buff)
 
 
-class WavStreamReceiver:
-    def __init__(self, filename: str, logger: logging.Logger = None):
+class WavStreamReceiver(StreamReceiver):
+    def __init__(
+        self,
+        filename: str,
+        current_sample_rate: int = 16000,
+        current_channels: int = 1,
+        chunk_size: int = 512,
+        logger: logging.Logger = None,
+    ):
         self._logger = logger if logger else logging.getLogger(f"WAV_Receiver_{filename}")
-
-        # TODO: make this dynamic
-        self.current_sample_rate = 16000
-        self.current_channles = 1
-        self.chunk_size = 512
+        super().__init__(current_sample_rate, current_channels, chunk_size, logger=self._logger)
 
         self.data, sr = sf.read(filename, always_2d=True)
         if sr != self.current_sample_rate:
             self._logger.debug("This sample rate is not supported. Resampling...")
         self.data = librosa.to_mono(self.data.T)
         self.data = librosa.resample(self.data, orig_sr=sr, target_sr=self.current_sample_rate)
-
-        self._running = True
 
     def recv_generator(self):
         i = 0

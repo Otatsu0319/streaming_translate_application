@@ -19,9 +19,9 @@ class VoiceSeparator:
         self.model_samplerate = self.model.samplerate
         self.model_audio_channels = self.model.audio_channels
         self.model_sources = self.model.sources
-        self.model_segment = 10.0  # model.max_allowed_segment  # 7.8s
+        self.model_segment = 7.8  # model.max_allowed_segment  # 7.8s
 
-        self.overlap = 0.5  # sec
+        self.overlap = 0.25  # sec
         self.overlap_frames = int(self.model_samplerate * self.overlap)
         self.chunk_size = int(self.model_samplerate * self.model_segment)  # 7.8s
 

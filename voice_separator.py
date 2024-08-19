@@ -27,11 +27,8 @@ class VoiceSeparator:
 
         self.fade = Fade(fade_in_len=self.overlap_frames, fade_out_len=self.overlap_frames, fade_shape="half_sine")
 
-        self.buffer = np.zeros((self.model_audio_channels, (self.overlap_frames)), dtype=np.float32)
-
-        print("overlap frames:", self.overlap_frames)
-        print("chunk size:", self.chunk_size)
-        print("buffer size:", self.buffer.shape)
+        self.input_buffer = np.zeros((self.model_audio_channels, self.chunk_size), dtype=np.float32)
+        self.output_buffer = np.zeros((self.model_audio_channels, (self.overlap_frames)), dtype=np.float32)
 
     def _check_chunk_dim(self, chunk):
         if chunk.shape[0] == self.model_audio_channels:
@@ -88,10 +85,14 @@ class VoiceSeparator:
             if chunk is None:
                 break
 
-            extract_chank = self.extract_voice(chunk)
+            self.input_buffer[:, self.overlap_frames :] = chunk
 
-            extract_chank[:, : self.overlap_frames] += self.buffer
-            self.buffer = extract_chank[:, -self.overlap_frames :]
+            extract_chank = self.extract_voice(self.input_buffer)
+
+            extract_chank[:, : self.overlap_frames] += self.output_buffer
+            self.output_buffer = extract_chank[:, -self.overlap_frames :]
+
+            self.input_buffer[:, : self.overlap_frames] = chunk[:, -self.overlap_frames :]
 
             yield extract_chank[:, : -self.overlap_frames]
 
@@ -107,10 +108,11 @@ if __name__ == "__main__":
     chunk_queueq = queue.Queue()
 
     print(wav.shape)
-    while start < data_length - vs.chunk_size:
-        chunk = wav[:, start : start + vs.chunk_size].copy()
+    seeq_size = vs.chunk_size - vs.overlap_frames
+    while start < data_length - seeq_size:
+        chunk = wav[:, start : start + seeq_size].copy()
         chunk_queueq.put(chunk)
-        start += vs.chunk_size - vs.overlap_frames
+        start += seeq_size
     chunk_queueq.put(None)
 
     forcus_stem_out = np.array([])

@@ -55,8 +55,8 @@ class VBANStreamingReceiver(StreamReceiver):
     def _check_pyaudio(self, header):
         if pyvban_audio.const.VBANSampleRatesEnum2SR[header.sample_rate] != self.current_sample_rate:
             raise NotImplementedError("This sample rate is not supported")
-        if header.channels != self.current_channles:
-            raise NotImplementedError(f"This channels is not supported. set channels to {self.current_channles}")
+        if header.channels != self.current_channels:
+            raise NotImplementedError(f"This channels is not supported. set channels to {self.current_channels}")
         if header.samples_per_frame > self.chunk_size:
             raise NotImplementedError(
                 f"This chunk_size is not supported. Please specify a value greater than {header.samples_per_frame}"
@@ -91,6 +91,7 @@ class VBANStreamingReceiver(StreamReceiver):
 
         except Exception as e:
             self._logger.error(f"An exception occurred: {e}")
+            raise e
 
     def recv_generator(self):
         while self._running:
@@ -105,9 +106,16 @@ class VBANStreamingReceiver(StreamReceiver):
             if len(self._buff) >= self.chunk_size:
                 data = self._buff[: self.chunk_size]
                 self._buff = self._buff[self.chunk_size :]
-                yield np.array(data)
 
-        yield np.array(self._buff)
+                if self.current_channels == 2:
+                    yield np.array([data, data]).T
+                else:
+                    yield np.array(data)
+
+        if self.current_channels == 2:
+            yield np.array(self._buff, self._buff).T
+        else:
+            yield np.array(self._buff)
 
 
 class WavStreamReceiver(StreamReceiver):

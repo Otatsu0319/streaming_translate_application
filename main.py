@@ -3,6 +3,7 @@ import queue
 from collections import deque
 from threading import Thread
 
+import librosa
 import numpy as np
 import torch
 from faster_whisper import WhisperModel
@@ -10,6 +11,7 @@ from llama_cpp import Llama
 from silero_vad import load_silero_vad
 
 import streamer
+import voice_separator
 
 SAMPLING_RATE = 16000
 MODEL_LABEL = "large-v3"  # or "distil-large-v3"
@@ -32,7 +34,7 @@ if __name__ == "__main__":
 
     silero_model = load_silero_vad(onnx=True)
     probs = deque(maxlen=3)
-    vad_threshold = 0.7
+    vad_threshold = 0.5
     is_speech = False
     buffer = []
     # It is better to tune this parameter for each dataset separately,
@@ -45,44 +47,76 @@ if __name__ == "__main__":
 
     running = True
 
+    vs = voice_separator.VoiceSeparator()
+
+    receiver = streamer.VBANStreamingReceiver(
+        "127.0.0.1",
+        "Stream1",
+        6981,
+        current_sample_rate=vs.model_samplerate,
+        current_channels=vs.model_audio_channels,
+        chunk_size=vs.chunk_size - vs.overlap_frames,
+    )
+    # receiver = streamer.WavStreamReceiver(
+    #     "./audio_samples/sample_elira.wav",
+    #     current_sample_rate=vs.model_samplerate,
+    #     current_channels=vs.model_audio_channels,
+    #     chunk_size=vs.chunk_size - vs.overlap_frames,
+    # )
+    sound_queue = queue.Queue()
+
     def transcribe_thread():
         while running:
             speech = speech_queue.get()
             speech = np.array(speech)
 
+            # TODO: 精度を高める int16 -> float32の変換が死んでる？ フラグメントを保存しつつ確認していく
             segments, _ = whisper_model.transcribe(
-                speech, language="en", log_prob_threshold=transcribe_log_probability_threshold
+                speech, language="ja", log_prob_threshold=transcribe_log_probability_threshold
             )
             for segment in segments:
                 print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
-                output = llm(PROMPT_EN2JP.format(segment.text), max_tokens=128, stop=["\n"])
+                output = llm(PROMPT_JP2EN.format(segment.text), max_tokens=128, stop=["\n"])
                 print("translated: ", output['choices'][0]['text'])
+
+    def sound_receiv_thread():
+        for chunk in receiver.recv_generator():
+            sound_queue.put(chunk.T)
+
+    print("stand-by cmpl.")
 
     th = Thread(target=transcribe_thread)
     th.start()
+    sd_th = Thread(target=sound_receiv_thread)
+    sd_th.start()
 
-    receiver = streamer.VBANStreamingReceiver("127.0.0.1", "Stream1", 6981)
-    # receiver = streamer.WavStreamReceiver("./audio_samples/sample_elira.wav")
+    print("start streaming...")
 
-    for chunk in receiver.recv_generator():
-        chunk = torch.from_numpy(chunk).float()
-        if len(chunk) < 512:
-            chunk = torch.cat([chunk, torch.zeros(512 - len(chunk))])
+    chunk_buffer = []
 
-        speech_prob = silero_model(chunk, SAMPLING_RATE).item()
+    for chunk in vs.extract_streamer(sound_queue):
+        chunk = librosa.to_mono(chunk)
+        chunk = librosa.resample(chunk, orig_sr=vs.model_samplerate, target_sr=SAMPLING_RATE)
 
-        # TODO: voice separation
-        probs.append(speech_prob)
+        chunk_buffer.extend(chunk)
+        for i in range(0, len(chunk_buffer) - 512, 512):
+            chunk = torch.Tensor(chunk_buffer[i : i + 512]).float()
 
-        if not is_speech and speech_prob > vad_threshold:
-            is_speech = True
+            speech_prob = silero_model(chunk, SAMPLING_RATE).item()
+            # print(speech_prob)
+            probs.append(speech_prob)
 
-        if is_speech:
-            buffer.extend(chunk.tolist())
+            if not is_speech and speech_prob > vad_threshold:
+                is_speech = True
 
-        if is_speech and (sum(probs) / len(probs)) < vad_threshold:
-            is_speech = False
-            speech_queue.put(buffer)
-            buffer = []
+            if is_speech:
+                buffer.extend(chunk.tolist())
+
+            if is_speech and (sum(probs) / len(probs)) < vad_threshold:
+                is_speech = False
+                speech_queue.put(buffer)
+                buffer = []
+
+        chunk_buffer = chunk_buffer[i + 512 :]
 
     th.join()

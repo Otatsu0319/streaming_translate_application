@@ -51,12 +51,13 @@ class VBANStreamingReceiver(StreamReceiver):
         self._socket.bind(("0.0.0.0", port))
 
         self._buff = []
+        self._first_check = False
 
-    def _check_pyaudio(self, header):
+    def _check_pyaudio(self, header: pyvban.subprotocols.audio.VBANAudioHeader):
         if pyvban_audio.const.VBANSampleRatesEnum2SR[header.sample_rate] != self.current_sample_rate:
             raise NotImplementedError("This sample rate is not supported")
-        if header.channels != self.current_channels:
-            raise NotImplementedError(f"This channels is not supported. set channels to {self.current_channels}")
+        if header.channels != 1 and not self._first_check:
+            raise NotImplementedError("This channels is not supported. set VBAudio channels to 1")
         if header.samples_per_frame > self.chunk_size:
             raise NotImplementedError(
                 f"This chunk_size is not supported. Please specify a value greater than {header.samples_per_frame}"
@@ -101,7 +102,9 @@ class VBANStreamingReceiver(StreamReceiver):
                 logging.error(f"An exception occurred: {e}")
                 continue
 
-            self._buff.extend(np.frombuffer(data, dtype="int16").tolist())
+            data = np.frombuffer(data, dtype="int16")
+            data = data / 32768.0
+            self._buff.extend(data.tolist())
 
             if len(self._buff) >= self.chunk_size:
                 data = self._buff[: self.chunk_size]

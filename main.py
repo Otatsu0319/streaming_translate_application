@@ -5,6 +5,7 @@ from threading import Thread
 
 import librosa
 import numpy as np
+import soundfile as sf
 import torch
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
@@ -16,6 +17,7 @@ import voice_separator
 SAMPLING_RATE = 16000
 MODEL_LABEL = "large-v3"  # or "distil-large-v3"
 
+CHUNK_SIZE = 512
 
 PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}\nEnglish:"
 PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}\nJapanese:"
@@ -35,6 +37,12 @@ if __name__ == "__main__":
     silero_model = load_silero_vad(onnx=True)
     probs = deque(maxlen=3)
     vad_threshold = 0.5
+    onvoice_timeout = 0.5  # sec
+    onvoice_timeout_chunk_count = (
+        int(onvoice_timeout * SAMPLING_RATE) // CHUNK_SIZE + 0
+        if int(onvoice_timeout * SAMPLING_RATE) % CHUNK_SIZE == 0
+        else 1
+    )
     is_speech = False
     buffer = []
     # It is better to tune this parameter for each dataset separately,
@@ -66,17 +74,20 @@ if __name__ == "__main__":
     sound_queue = queue.Queue()
 
     def transcribe_thread():
+        alpha = 0
         while running:
             speech = speech_queue.get()
             speech = np.array(speech)
+            print("speech shape: ", speech.shape)
+            sf.write(f"./results/transcribe/speech_{alpha}.wav", speech, SAMPLING_RATE)
+            alpha += 1
 
-            # TODO: 精度を高める int16 -> float32の変換が死んでる？ フラグメントを保存しつつ確認していく
             segments, _ = whisper_model.transcribe(
-                speech, language="ja", log_prob_threshold=transcribe_log_probability_threshold
+                speech, language="en", log_prob_threshold=transcribe_log_probability_threshold
             )
             for segment in segments:
                 print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
-                output = llm(PROMPT_JP2EN.format(segment.text), max_tokens=128, stop=["\n"])
+                output = llm(PROMPT_EN2JP.format(segment.text), max_tokens=128, stop=["\n"])
                 print("translated: ", output['choices'][0]['text'])
 
     def sound_receiv_thread():
@@ -92,31 +103,34 @@ if __name__ == "__main__":
 
     print("start streaming...")
 
-    chunk_buffer = []
+    chunk_buffer = np.zeros(0)
+
+    timeout_counter = 0
 
     for chunk in vs.extract_streamer(sound_queue):
         chunk = librosa.to_mono(chunk)
         chunk = librosa.resample(chunk, orig_sr=vs.model_samplerate, target_sr=SAMPLING_RATE)
 
-        chunk_buffer.extend(chunk)
-        for i in range(0, len(chunk_buffer) - 512, 512):
-            chunk = torch.Tensor(chunk_buffer[i : i + 512]).float()
+        chunk_buffer = np.append(chunk_buffer, chunk)
+        i = 0
+        for i in range(0, len(chunk_buffer) - CHUNK_SIZE, CHUNK_SIZE):
+            chunk = torch.Tensor(chunk_buffer[i : i + CHUNK_SIZE]).float()
 
             speech_prob = silero_model(chunk, SAMPLING_RATE).item()
             # print(speech_prob)
-            probs.append(speech_prob)
 
-            if not is_speech and speech_prob > vad_threshold:
-                is_speech = True
+            if vad_threshold < speech_prob:
+                timeout_counter = 0
+            else:
+                timeout_counter += 1
 
-            if is_speech:
+            if vad_threshold < speech_prob and timeout_counter <= onvoice_timeout_chunk_count:
                 buffer.extend(chunk.tolist())
 
-            if is_speech and (sum(probs) / len(probs)) < vad_threshold:
-                is_speech = False
+            if speech_prob < vad_threshold and onvoice_timeout_chunk_count < timeout_counter and 0 < len(buffer):
                 speech_queue.put(buffer)
                 buffer = []
 
-        chunk_buffer = chunk_buffer[i + 512 :]
+        chunk_buffer = chunk_buffer[i + CHUNK_SIZE :]
 
     th.join()

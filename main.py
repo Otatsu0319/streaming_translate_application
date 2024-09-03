@@ -14,7 +14,7 @@ import voice_transcriber
 SAMPLING_RATE = 16000
 
 
-CHUNK_SIZE = 512
+CHUNK_SIZE = 512  # silero_vad model's chunk size
 
 
 def main():

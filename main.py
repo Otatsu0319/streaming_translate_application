@@ -22,38 +22,51 @@ CHUNK_SIZE = 512
 PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}\nEnglish:"
 PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}\nJapanese:"
 
+
+class Transcriber:
+    def __init__(self, translate=True):
+
+        self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
+        self.speech_queue = queue.Queue()
+
+        self.is_speech = False
+
+        # Run on GPU with FP16
+        self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
+        self.speech_queue = queue.Queue()
+        self.transcribe_log_probability_threshold = -0.5
+
+        self.running = True
+
+        self.translate = translate
+        if translate:
+            self.translator = Llama.from_pretrained(
+                "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",
+                "*q8_0.gguf",
+                local_dir="/workspace/models",
+                cache_dir="/workspace/models",
+                n_gpu_layers=-1,
+                verbose=False,
+            )
+
+    def transcribe_thread(self):
+        while self.running:
+            speech = self.speech_queue.get()
+            speech = np.array(speech)
+
+            segments, _ = self.whisper_model.transcribe(
+                speech, language="en", log_prob_threshold=self.transcribe_log_probability_threshold
+            )
+            for segment in segments:
+                print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
+
+                if self.translate:
+                    output = self.translator(PROMPT_EN2JP.format(segment.text), max_tokens=128, stop=["\n"])
+                    print("translated: ", output['choices'][0]['text'])
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.ERROR)
-
-    llm = Llama.from_pretrained(
-        "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",
-        "*q8_0.gguf",
-        local_dir="/workspace/models",
-        cache_dir="/workspace/models",
-        n_gpu_layers=-1,
-        verbose=False,
-    )
-
-    silero_model = load_silero_vad(onnx=True)
-    probs = deque(maxlen=3)
-    vad_threshold = 0.5
-    onvoice_timeout = 0.5  # sec
-    onvoice_timeout_chunk_count = (
-        int(onvoice_timeout * SAMPLING_RATE) // CHUNK_SIZE + 0
-        if int(onvoice_timeout * SAMPLING_RATE) % CHUNK_SIZE == 0
-        else 1
-    )
-    is_speech = False
-    buffer = []
-    # It is better to tune this parameter for each dataset separately,
-    # but "lazy" 0.5 is pretty good for most datasets.
-
-    # Run on GPU with FP16
-    whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
-    speech_queue = queue.Queue()
-    transcribe_log_probability_threshold = -0.5
-
-    running = True
 
     vs = voice_separator.VoiceSeparator()
 
@@ -73,30 +86,28 @@ if __name__ == "__main__":
     # )
     sound_queue = queue.Queue()
 
-    def transcribe_thread():
-        alpha = 0
-        while running:
-            speech = speech_queue.get()
-            speech = np.array(speech)
-            print("speech shape: ", speech.shape)
-            sf.write(f"./results/transcribe/speech_{alpha}.wav", speech, SAMPLING_RATE)
-            alpha += 1
-
-            segments, _ = whisper_model.transcribe(
-                speech, language="en", log_prob_threshold=transcribe_log_probability_threshold
-            )
-            for segment in segments:
-                print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
-                output = llm(PROMPT_EN2JP.format(segment.text), max_tokens=128, stop=["\n"])
-                print("translated: ", output['choices'][0]['text'])
+    transcriber = Transcriber()
 
     def sound_receiv_thread():
         for chunk in receiver.recv_generator():
             sound_queue.put(chunk.T)
 
+    silero_model = load_silero_vad(onnx=True)
+    probs = deque(maxlen=3)
+    vad_threshold = 0.5
+    # It is better to tune this parameter for each dataset separately,
+    # but "lazy" 0.5 is pretty good for most datasets.
+    onvoice_timeout = 0.5  # sec
+    onvoice_timeout_chunk_count = (
+        int(onvoice_timeout * SAMPLING_RATE) // CHUNK_SIZE + 0
+        if int(onvoice_timeout * SAMPLING_RATE) % CHUNK_SIZE == 0
+        else 1
+    )
+    buffer = []
+
     print("stand-by cmpl.")
 
-    th = Thread(target=transcribe_thread)
+    th = Thread(target=transcriber.transcribe_thread)
     th.start()
     sd_th = Thread(target=sound_receiv_thread)
     sd_th.start()
@@ -128,7 +139,7 @@ if __name__ == "__main__":
                 buffer.extend(chunk.tolist())
 
             if speech_prob < vad_threshold and onvoice_timeout_chunk_count < timeout_counter and 0 < len(buffer):
-                speech_queue.put(buffer)
+                transcriber.speech_queue.put(buffer)
                 buffer = []
 
         chunk_buffer = chunk_buffer[i + CHUNK_SIZE :]

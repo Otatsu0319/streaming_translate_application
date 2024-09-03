@@ -1,6 +1,5 @@
 import logging
 import queue
-from collections import deque
 from threading import Thread
 
 import librosa
@@ -46,7 +45,6 @@ def main():
             sound_queue.put(chunk.T)
 
     silero_model = load_silero_vad(onnx=True)
-    probs = deque(maxlen=3)
     vad_threshold = 0.5
     # It is better to tune this parameter for each dataset separately,
     # but "lazy" 0.5 is pretty good for most datasets.

@@ -18,7 +18,7 @@ SAMPLING_RATE = 16000
 CHUNK_SIZE = 512
 
 
-if __name__ == "__main__":
+def main():
     logging.basicConfig(level=logging.ERROR)
 
     vs = voice_separator.VoiceSeparator()
@@ -98,3 +98,7 @@ if __name__ == "__main__":
         chunk_buffer = chunk_buffer[i + CHUNK_SIZE :]
 
     th.join()
+
+
+if __name__ == "__main__":
+    main()

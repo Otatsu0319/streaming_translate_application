@@ -51,3 +51,8 @@ if __name__ == "__main__":
     print(f"model_audio_channels={model.audio_channels}")
     print(f"model_souces={model.sources}")
     print(f"model_segment={model.segment}")
+
+    # 各種コンパイルを試し実行速度を見た
+    # float16に落とそうとするとエラーが出た HTDemucsの作りだと上手く落とし込めないっぽい
+    # jit compileとapexを試したが、速度差は大きくなかった
+    # 現状でもそんなに重くないので、非効率ではあるが、とりあえずこのままで

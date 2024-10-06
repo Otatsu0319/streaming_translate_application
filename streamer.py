@@ -115,11 +115,6 @@ class VBANStreamingReceiver(StreamReceiver):
                 else:
                     yield np.array(data)
 
-        if self.current_channels == 2:
-            yield np.array(self._buff, self._buff).T
-        else:
-            yield np.array(self._buff)
-
 
 class WavStreamReceiver(StreamReceiver):
     def __init__(

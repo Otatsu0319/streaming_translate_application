@@ -1,8 +1,8 @@
 import multiprocessing as mp
 
 import numpy as np
-from faster_whisper import WhisperModel
-from llama_cpp import Llama
+from faster_whisper import WhisperModel  # TODO: test tensorrt-llm
+from llama_cpp import Llama  # TODO: test tensorrt-llm
 
 MODEL_LABEL = "large-v3"  # or "distil-large-v3"
 
@@ -15,7 +15,7 @@ mp.set_start_method('spawn', force=True)
 
 def translate_process(queue):
     translator = Llama.from_pretrained(
-        "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",
+        "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",  # TODO: test "grapevine-AI/gemma-2-2b-jpn-it-gguf"
         "*q4_0.gguf",
         local_dir="/workspace/models",
         cache_dir="/workspace/models",

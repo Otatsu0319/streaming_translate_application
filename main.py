@@ -39,8 +39,9 @@ def main():
     #     chunk_size=vs.chunk_size - vs.overlap_frames,
     # )
     sound_queue = queue.Queue()
+    speech_queue = queue.Queue()
 
-    transcriber = voice_transcriber.VoiceTranscriber()
+    transcriber = voice_transcriber.VoiceTranscriber(speech_queue)
 
     def sound_receiv_thread():
         for chunk in receiver.recv_generator():

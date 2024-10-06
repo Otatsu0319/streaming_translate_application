@@ -13,13 +13,13 @@ class VoiceTranscriber:
         self.speech_queue = speech_queue
         # Run on GPU with FP16
         self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
-        self.transcribe_log_probability_threshold = -0.5
+        self.transcribe_log_probability_threshold = -0.4
 
         self.translate = translate
         if translate:
             self.translator = Llama.from_pretrained(
                 "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",
-                "*q8_0.gguf",
+                "*q4_0.gguf",
                 local_dir="/workspace/models",
                 cache_dir="/workspace/models",
                 n_gpu_layers=-1,

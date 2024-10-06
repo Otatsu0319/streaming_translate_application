@@ -102,8 +102,8 @@ def main():
         if start_time + 10 < time.time():
             print("ending streaming...")
             sound_queue.put(None)
+            speech_queue.put(None)
             receiver._running = False
-            transcriber.running = False
             break
 
     th.join()

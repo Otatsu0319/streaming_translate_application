@@ -15,8 +15,6 @@ class VoiceTranscriber:
         self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
         self.transcribe_log_probability_threshold = -0.5
 
-        self.running = True
-
         self.translate = translate
         if translate:
             self.translator = Llama.from_pretrained(
@@ -29,8 +27,10 @@ class VoiceTranscriber:
             )  # VRAM 6.7GB?
 
     def transcribe_thread(self):
-        while self.running:
+        while True:
             speech = self.speech_queue.get()
+            if speech is None:
+                break
             speech = np.array(speech)
 
             segments, _ = self.whisper_model.transcribe(

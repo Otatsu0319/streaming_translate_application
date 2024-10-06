@@ -1,5 +1,3 @@
-import queue
-
 import numpy as np
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
@@ -11,16 +9,10 @@ PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}\nJapanese
 
 
 class VoiceTranscriber:
-    def __init__(self, translate=True):
-
-        self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
-        self.speech_queue = queue.Queue()
-
-        self.is_speech = False
-
+    def __init__(self, speech_queue, translate=True):
+        self.speech_queue = speech_queue
         # Run on GPU with FP16
         self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
-        self.speech_queue = queue.Queue()
         self.transcribe_log_probability_threshold = -0.5
 
         self.running = True
@@ -34,7 +26,7 @@ class VoiceTranscriber:
                 cache_dir="/workspace/models",
                 n_gpu_layers=-1,
                 verbose=False,
-            )
+            )  # VRAM 6.7GB?
 
     def transcribe_thread(self):
         while self.running:

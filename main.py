@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import logging
 import queue
+import time
 from threading import Thread
 
 import librosa
@@ -70,6 +71,8 @@ def main():
 
     timeout_counter = 0
 
+    start_time = time.time()
+
     for chunk in vs.extract_streamer(sound_queue):
         chunk = librosa.to_mono(chunk)
         chunk = librosa.resample(chunk, orig_sr=vs.model_samplerate, target_sr=SAMPLING_RATE)
@@ -95,8 +98,15 @@ def main():
                 buffer = []
 
         chunk_buffer = chunk_buffer[i + CHUNK_SIZE :]
+        if start_time + 10 < time.time():
+            print("ending streaming...")
+            sound_queue.put(None)
+            receiver._running = False
+            transcriber.running = False
+            break
 
     th.join()
+    sd_th.join()
 
 
 if __name__ == "__main__":

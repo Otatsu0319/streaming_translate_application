@@ -42,6 +42,8 @@ if PYTHON_BINDINGS:
 
 from whisper.audio import HOP_LENGTH, N_FFT, N_SAMPLES, SAMPLE_RATE  # , CHUNK_LENGTH
 
+tensorrt_llm.logger.set_level('warning')
+
 
 # MARK: whisper_utils.py
 def load_audio(file: str, sr: int = SAMPLE_RATE):

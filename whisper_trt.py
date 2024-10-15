@@ -20,11 +20,16 @@ import re
 import time
 from collections import OrderedDict
 from pathlib import Path
+from subprocess import CalledProcessError, run
+from typing import Optional, Union
 
+import librosa
 import numpy as np
+import soundfile
 import tensorrt_llm
 import tensorrt_llm.logger as logger
 import torch
+import torch.nn.functional as F
 from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt, trt_dtype_to_torch
 from tensorrt_llm.bindings import GptJsonConfig, KVCacheType
 from tensorrt_llm.runtime import PYTHON_BINDINGS, ModelConfig, SamplingConfig
@@ -32,12 +37,145 @@ from tensorrt_llm.runtime.session import Session, TensorInfo
 from whisper import tokenizer
 from whisper.normalizers import EnglishTextNormalizer
 
-from whisper_utils import N_SAMPLES, log_mel_spectrogram, pad_or_trim
-
 if PYTHON_BINDINGS:
     from tensorrt_llm.runtime import ModelRunnerCpp
 
+from whisper.audio import HOP_LENGTH, N_FFT, N_SAMPLES, SAMPLE_RATE  # , CHUNK_LENGTH
 
+
+# MARK: whisper_utils.py
+def load_audio(file: str, sr: int = SAMPLE_RATE):
+    """
+    Open an audio file and read as mono waveform, resampling as necessary
+
+    Parameters
+    ----------
+    file: str
+        The audio file to open
+
+    sr: int
+        The sample rate to resample the audio if necessary
+
+    Returns
+    -------
+    A NumPy array containing the audio waveform, in float32 dtype.
+    """
+
+    # This launches a subprocess to decode audio while down-mixing
+    # and resampling as necessary.  Requires the ffmpeg CLI in PATH.
+    # fmt: off
+    cmd = [
+        "ffmpeg", "-nostdin", "-threads", "0", "-i", file, "-f", "s16le", "-ac",
+        "1", "-acodec", "pcm_s16le", "-ar",
+        str(sr), "-"
+    ]
+    # fmt: on
+    try:
+        out = run(cmd, capture_output=True, check=True).stdout
+    except CalledProcessError as e:
+        raise RuntimeError(f"Failed to load audio: {e.stderr.decode()}") from e
+
+    return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
+
+
+def load_audio_wav_format(wav_path):
+    # make sure audio in .wav format
+    assert wav_path.endswith('.wav'), f"Only support .wav format, but got {wav_path}"
+    waveform, sample_rate = soundfile.read(wav_path)
+    if sample_rate != 16000:
+        waveform = librosa.resample(waveform, orig_sr=sample_rate, target_sr=16000)
+    # assert sample_rate == 16000, f"Only support 16k sample rate, but got {sample_rate}"
+    return waveform, sample_rate
+
+
+def pad_or_trim(array, length: int = N_SAMPLES, *, axis: int = -1):
+    """
+    Pad or trim the audio array to N_SAMPLES, as expected by the encoder.
+    """
+    if torch.is_tensor(array):
+        if array.shape[axis] > length:
+            array = array.index_select(dim=axis, index=torch.arange(length, device=array.device))
+
+        if array.shape[axis] < length:
+            pad_widths = [(0, 0)] * array.ndim
+            pad_widths[axis] = (0, length - array.shape[axis])
+            array = F.pad(array, [pad for sizes in pad_widths[::-1] for pad in sizes])
+    else:
+        if array.shape[axis] > length:
+            array = array.take(indices=range(length), axis=axis)
+
+        if array.shape[axis] < length:
+            pad_widths = [(0, 0)] * array.ndim
+            pad_widths[axis] = (0, length - array.shape[axis])
+            array = np.pad(array, pad_widths)
+
+    return array
+
+
+def log_mel_spectrogram(
+    audio: Union[str, np.ndarray, torch.Tensor],
+    n_mels: int,
+    padding: int = 0,
+    device: Optional[Union[str, torch.device]] = None,
+    return_duration: bool = False,
+    mel_filters_dir: str = None,
+):
+    """
+    Compute the log-Mel spectrogram of
+
+    Parameters
+    ----------
+    audio: Union[str, np.ndarray, torch.Tensor], shape = (*)
+        The path to audio or either a NumPy array or Tensor containing the audio waveform in 16 kHz
+
+    n_mels: int
+        The number of Mel-frequency filters, only 80 and 128 are supported
+
+    padding: int
+        Number of zero samples to pad to the right
+
+    device: Optional[Union[str, torch.device]]
+        If given, the audio tensor is moved to this device before STFT
+
+    Returns
+    -------
+    torch.Tensor, shape = (80 or 128, n_frames)
+        A Tensor that contains the Mel spectrogram
+    """
+    if not torch.is_tensor(audio):
+        if isinstance(audio, str):
+            if audio.endswith('.wav'):
+                audio, _ = load_audio_wav_format(audio)
+            else:
+                audio = load_audio(audio)
+        assert isinstance(audio, np.ndarray), f"Unsupported audio type: {type(audio)}"
+        duration = audio.shape[-1] / SAMPLE_RATE
+        audio = pad_or_trim(audio, N_SAMPLES)
+        audio = audio.astype(np.float32)
+        audio = torch.from_numpy(audio)
+
+    if device is not None:
+        audio = audio.to(device)
+    if padding > 0:
+        audio = F.pad(audio, (0, padding))
+    window = torch.hann_window(N_FFT).to(audio.device)
+    stft = torch.stft(audio, N_FFT, HOP_LENGTH, window=window, return_complex=True)
+    magnitudes = stft[..., :-1].abs() ** 2
+
+    mel_128 = librosa.filters.mel(sr=16000, n_fft=400, n_mels=128)
+    filters = torch.from_numpy(mel_128).to(device)
+    mel_spec = filters @ magnitudes
+
+    log_spec = torch.clamp(mel_spec, min=1e-10).log10()
+    log_spec = torch.maximum(log_spec, log_spec.max() - 8.0)
+    log_spec = (log_spec + 4.0) / 4.0
+    if return_duration:
+        return log_spec, duration
+    else:
+        return log_spec
+
+
+# MARK: run.py
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_level', type=str, default='warning')
@@ -381,7 +519,7 @@ def collate_wrapper(batch):
 
 if __name__ == '__main__':
     args = parse_arguments()
-    model = WhisperTRTLLM("/mnt/wsl/workspace/TensorRT-LLM/examples/whisper/whisper_large_v3_trt")
+    model = WhisperTRTLLM("/mnt/wsl/workspace/TensorRT-LLM/examples/whisper/whisper_large_v3_trt", use_py_session=True)
     normalizer = EnglishTextNormalizer()
 
     start_time = time.time()

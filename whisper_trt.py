@@ -35,7 +35,7 @@ from whisper import tokenizer
 from whisper.audio import HOP_LENGTH, N_FFT, N_SAMPLES, SAMPLE_RATE  # , CHUNK_LENGTH
 from whisper.normalizers import EnglishTextNormalizer
 
-tensorrt_llm.logger.set_level("warning")
+tensorrt_llm.logger.set_level('warning')
 
 
 def load_audio_wav_format(wav_path):

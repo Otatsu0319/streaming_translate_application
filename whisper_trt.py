@@ -16,6 +16,7 @@
 # # limitations under the License.
 import argparse
 import json
+import os
 import re
 import time
 from collections import OrderedDict
@@ -25,17 +26,18 @@ from typing import Optional, Union
 import librosa
 import numpy as np
 import soundfile
-import tensorrt_llm
 import torch
 import torch.nn.functional as F
-from tensorrt_llm._utils import str_dtype_to_torch
-from tensorrt_llm.bindings import GptJsonConfig
-from tensorrt_llm.runtime import ModelRunnerCpp
-from whisper import tokenizer
 from whisper.audio import HOP_LENGTH, N_FFT, N_SAMPLES, SAMPLE_RATE  # , CHUNK_LENGTH
 from whisper.normalizers import EnglishTextNormalizer
 
-tensorrt_llm.logger.set_level('warning')
+os.environ['TLLM_LOG_LEVEL'] = 'ERROR'
+
+if os.environ['TLLM_LOG_LEVEL'] in ["INTERNAL_ERROR", "ERROR", "WARNING", "INFO", "VERBOSE", "DEBUG"]:
+    from tensorrt_llm._utils import str_dtype_to_torch
+    from tensorrt_llm.bindings import GptJsonConfig
+    from tensorrt_llm.runtime import ModelRunnerCpp
+    from whisper import tokenizer
 
 
 def load_audio_wav_format(wav_path):
@@ -163,10 +165,6 @@ def read_config(component, engine_dir):
 
 class WhisperTRTLLM(object):
     def __init__(self, engine_dir, debug_mode=False, use_py_session=False):
-        world_size = 1
-        runtime_rank = tensorrt_llm.mpi_rank()
-        runtime_mapping = tensorrt_llm.Mapping(world_size, runtime_rank)
-        torch.cuda.set_device(runtime_rank % runtime_mapping.gpus_per_node)
         engine_dir = Path(engine_dir)
         encoder_config = read_config('encoder', engine_dir)
         decoder_config = read_config('decoder', engine_dir)

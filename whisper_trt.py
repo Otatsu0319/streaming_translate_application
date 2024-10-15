@@ -23,22 +23,14 @@ import numpy as np
 import tensorrt_llm
 import tensorrt_llm.logger as logger
 import torch
-from datasets import load_dataset
 from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt, trt_dtype_to_torch
 from tensorrt_llm.bindings import GptJsonConfig, KVCacheType
 from tensorrt_llm.runtime import PYTHON_BINDINGS, ModelConfig, SamplingConfig
 from tensorrt_llm.runtime.session import Session, TensorInfo
-from tokenizer import get_tokenizer
-from torch.utils.data import DataLoader
+from whisper import tokenizer
 from whisper.normalizers import EnglishTextNormalizer
 
-from whisper_utils import (
-    N_SAMPLES,
-    log_mel_spectrogram,
-    pad_or_trim,
-    store_transcripts,
-    write_error_stats,
-)
+from whisper_utils import N_SAMPLES, log_mel_spectrogram, pad_or_trim
 
 if PYTHON_BINDINGS:
     from tensorrt_llm.runtime import ModelRunnerCpp
@@ -53,10 +45,9 @@ def parse_arguments():
     parser.add_argument('--input_file', type=str, default=None)
     parser.add_argument('--dataset', type=str, default="hf-internal-testing/librispeech_asr_dummy")
     parser.add_argument('--name', type=str, default="librispeech_dummy_benchmark")
-    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_beams', type=int, default=1)
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--enable_warmup', action='store_true')
     parser.add_argument('--dtype', type=str, default='float16', choices=['float16'])
     parser.add_argument('--accuracy_check', action='store_true', help="only for CI test")
     parser.add_argument('--use_py_session', action='store_true', help="use python session or cpp session")
@@ -178,7 +169,7 @@ class WhisperDecoding:
             remove_input_padding=self.decoder_config['plugin_config']['remove_input_padding'],
             kv_cache_type=(
                 KVCacheType.PAGED
-                if self.decoder_config['plugin_config']['paged_kv_cache'] == True
+                if self.decoder_config['plugin_config']['paged_kv_cache'] is True
                 else KVCacheType.CONTINUOUS
             ),
             has_position_embedding=self.decoder_config['has_position_embedding'],
@@ -262,13 +253,18 @@ class WhisperTRTLLM(object):
         is_multilingual = decoder_config['vocab_size'] >= 51865
         if is_multilingual:
             tokenizer_name = "multilingual"
-            assert (
-                Path(assets_dir) / "multilingual.tiktoken"
-            ).exists(), "multilingual.tiktoken file is not existed in assets_dir"
+            # assert (
+            #     Path(assets_dir) / "multilingual.tiktoken"
+            # ).exists(), "multilingual.tiktoken file is not existed in assets_dir"
         else:
             tokenizer_name = "gpt2"
-            assert (Path(assets_dir) / "gpt2.tiktoken").exists(), "gpt2.tiktoken file is not existed in assets_dir"
-        self.tokenizer = get_tokenizer(name=tokenizer_name, num_languages=self.num_languages, tokenizer_dir=assets_dir)
+            # assert (Path(assets_dir) / "gpt2.tiktoken").exists(), "gpt2.tiktoken file is not existed in assets_dir"
+        # self.tokenizer = get_tokenizer(
+        #     name=tokenizer_name,
+        #     num_languages=self.num_languages,
+        #     tokenizer_dir=assets_dir,
+        # )
+        self.tokenizer = tokenizer.get_encoding(tokenizer_name, self.num_languages)
         self.eot_id = self.tokenizer.encode("<|endoftext|>", allowed_special=self.tokenizer.special_tokens_set)[0]
         if use_py_session:
             self.encoder = WhisperEncoding(engine_dir)
@@ -381,97 +377,24 @@ def collate_wrapper(batch):
     return speeches, durations, labels, ids
 
 
-def decode_dataset(
-    model,
-    dataset,
-    text_prefix="<|startoftranscript|><|en|><|transcribe|><|notimestamps|>",
-    dtype='float16',
-    batch_size=1,
-    num_beams=1,
-    normalizer=None,
-    sample_rate=16000,
-    mel_filters_dir=None,
-):
-    librispeech_dummy = load_dataset(dataset, "clean", split="validation")
-
-    data_loader = DataLoader(
-        librispeech_dummy, batch_size=batch_size, num_workers=4, pin_memory=True, collate_fn=collate_wrapper
-    )
-    results = []
-    total_duration = 0
-    for batch in data_loader:
-        waveforms, durations, texts, ids = batch
-        total_duration += sum(durations) / sample_rate
-
-        for wave in waveforms:
-            assert wave.is_pinned()
-
-        features = [
-            log_mel_spectrogram(wave, model.n_mels, device='cuda', mel_filters_dir=mel_filters_dir).unsqueeze(0)
-            for wave in waveforms
-        ]
-        features = torch.cat(features, dim=0).type(str_dtype_to_torch(dtype))
-        # TODO: use the actual input_lengths rather than padded input_lengths
-        feature_input_lengths = torch.full(
-            (features.shape[0],), features.shape[2], dtype=torch.int32, device=features.device
-        )
-        predictions = model.process_batch(features, feature_input_lengths, text_prefix, num_beams)
-        for wav_id, label, prediction in zip(ids, texts, predictions):
-            # remove all special tokens in the prediction
-            prediction = re.sub(r'<\|.*?\|>', '', prediction)
-            if normalizer:
-                prediction, label = normalizer(prediction), normalizer(label)
-            print(f"wav_id: {wav_id}, label: {label}, prediction: {prediction}")
-            results.append((wav_id, label.split(), prediction.split()))
-    return results, total_duration
-
-
 if __name__ == '__main__':
     args = parse_arguments()
-    tensorrt_llm.logger.set_level(args.log_level)
-    model = WhisperTRTLLM(args.engine_dir, args.debug, args.assets_dir, args.use_py_session)
+    model = WhisperTRTLLM("/mnt/wsl/workspace/TensorRT-LLM/examples/whisper/whisper_large_v3_trt")
     normalizer = EnglishTextNormalizer()
-    if args.enable_warmup:
-        results, total_duration = decode_dataset(
-            model,
-            "hf-internal-testing/librispeech_asr_dummy",
-            batch_size=args.batch_size,
-            num_beams=args.num_beams,
-            normalizer=normalizer,
-            mel_filters_dir=args.assets_dir,
-        )
+
     start_time = time.time()
-    if args.input_file:
-        results, total_duration = decode_wav_file(
-            args.input_file,
-            model,
-            dtype=args.dtype,
-            batch_size=args.batch_size,
-            num_beams=args.num_beams,
-            mel_filters_dir=args.assets_dir,
-        )
-    else:
-        results, total_duration = decode_dataset(
-            model,
-            args.dataset,
-            dtype=args.dtype,
-            batch_size=args.batch_size,
-            num_beams=args.num_beams,
-            normalizer=normalizer,
-            mel_filters_dir=args.assets_dir,
-        )
+    results, total_duration = decode_wav_file(
+        "/mnt/wsl/workspace/streaming_translate_application/results/htdemucs_vocal_16k.wav",
+        model,
+        dtype=args.dtype,
+        batch_size=args.batch_size,
+        num_beams=args.num_beams,
+        mel_filters_dir=args.assets_dir,
+    )
     elapsed = time.time() - start_time
     results = sorted(results)
 
-    Path(args.results_dir).mkdir(parents=True, exist_ok=True)
-    store_transcripts(filename=f"{args.results_dir}/recogs-{args.name}.txt", texts=results)
-
-    with open(f"{args.results_dir}/errs-{args.name}.txt", "w") as f:
-        total_error_rate = write_error_stats(f, "test-set", results, enable_log=True)
-        if args.accuracy_check and args.dataset == "hf-internal-testing/librispeech_asr_dummy" and not args.input_file:
-            assert (
-                total_error_rate <= 2.8
-            ), f"Word Error rate using whisper large-v3 model should be 2.40%, but got {total_error_rate}"
+    print(results)
 
     rtf = elapsed / total_duration
     s = f"RTF: {rtf:.4f}\n"
@@ -480,10 +403,6 @@ if __name__ == '__main__':
     s += f"processing time: {elapsed:.3f} seconds " f"({elapsed/3600:.2f} hours)\n"
     s += f"batch size: {args.batch_size}\n"
     s += f"num_beams: {args.num_beams}\n"
-    s += f"total error rate: {total_error_rate:.2f}%\n"
     print(s)
-
-    with open(f"{args.results_dir}/rtf-{args.name}.txt", "w") as f:
-        f.write(s)
 
     del model

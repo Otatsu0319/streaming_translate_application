@@ -21,7 +21,6 @@ import re
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional, Union
 
 import librosa
 import numpy as np
@@ -29,7 +28,8 @@ import soundfile
 import torch
 import torch.nn.functional as F
 from whisper.audio import HOP_LENGTH, N_FFT, N_SAMPLES  # , SAMPLE_RATE, CHUNK_LENGTH
-from whisper.normalizers import EnglishTextNormalizer
+
+# from whisper.normalizers import EnglishTextNormalizer
 
 os.environ['TLLM_LOG_LEVEL'] = 'ERROR'
 
@@ -110,7 +110,7 @@ class WhisperTRTLLM(object):
         self.tokenizer = tokenizer.get_encoding(tokenizer_name, self.num_languages)
         self.eot_id = self.tokenizer.encode("<|endoftext|>", allowed_special=self.tokenizer.special_tokens_set)[0]
 
-        self.normalizer = EnglishTextNormalizer()
+        # self.normalizer = EnglishTextNormalizer() # 大文字小文字、記号等が正規化され比較しやすい形になる (=読みづらい)
 
         self.device = device
         self.mel_filter = torch.from_numpy(
@@ -176,7 +176,6 @@ class WhisperTRTLLM(object):
 
         stft = torch.stft(audio, N_FFT, HOP_LENGTH, window=self.window, return_complex=True)
         magnitudes = stft[..., :-1].abs() ** 2
-        print(self.mel_filter.type(), magnitudes.type())
         mel_spec = self.mel_filter @ magnitudes
 
         log_spec = torch.clamp(mel_spec, min=1e-10).log10()
@@ -194,7 +193,7 @@ class WhisperTRTLLM(object):
         feature_input_lengths = torch.full((mel.shape[0],), mel.shape[2], dtype=torch.int32, device=mel.device)
 
         mel_input_lengths = feature_input_lengths
-        text_prefix = "<|startoftranscript|><|en|><|transcribe|><|notimestamps|>"
+        text_prefix = f"<|startoftranscript|><|{language}|><|transcribe|><|notimestamps|>"
         num_beams = 1
         max_new_tokens = 96
 
@@ -218,17 +217,20 @@ class WhisperTRTLLM(object):
             )
             torch.cuda.synchronize()
             output_ids = outputs['output_ids'].cpu().numpy().tolist()
-        for key in outputs:
-            print(key, outputs[key].shape)
-            print(outputs[key].cpu().numpy().tolist())
+            cum_log_probs = outputs['cum_log_probs'].cpu().numpy().tolist()
+
         predictions = []
+        probs = []
         for i in range(len(output_ids)):
+            if cum_log_probs[i][0] < log_prob_threshold:
+                continue
             text = self.tokenizer.decode(output_ids[i][0]).strip()
             text = re.sub(r'<\|.*?\|>', '', text)
-            if self.normalizer:
-                text = self.normalizer(text)
+            # if self.normalizer:
+            #     text = self.normalizer(text)
             predictions.append(text)
-        return predictions
+            probs.append(cum_log_probs[i][0])
+        return predictions, probs
 
 
 if __name__ == '__main__':
@@ -236,7 +238,7 @@ if __name__ == '__main__':
     model = WhisperTRTLLM("/mnt/wsl/workspace/streaming_translate_application/models/whisper_trt_engine")
     wav, sr = load_audio_wav_format("/mnt/wsl/workspace/streaming_translate_application/results/htdemucs_vocal_16k.wav")
     start_time = time.time()
-    results = model.transcribe(wav, language="en", log_prob_threshold=-float("inf"))
+    results, probs = model.transcribe(wav, language="en", log_prob_threshold=-float("inf"))
     elapsed = time.time() - start_time
 
     print(results)

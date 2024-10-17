@@ -2,39 +2,35 @@ import multiprocessing as mp
 
 import numpy as np
 
-# from faster_whisper import WhisperModel  # TODO: test tensorrt-llm
+# from llama_cpp import Llama
+from gemma2_trt import Gemma2
+
+# from faster_whisper import WhisperModel
 from whisper_trt import WhisperTRTLLM
 
 # import torch_tensorrt
 
-# from llama_cpp import Llama  # TODO: test tensorrt-llm
 
 MODEL_LABEL = "large-v3"  # or "distil-large-v3"
 
-PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}\nEnglish:"
-PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}\nJapanese:"
-
+PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}"
+PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}"
+"/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it"
 
 mp.set_start_method('spawn', force=True)
 
 
 def translate_process(queue):
-    translator = Llama.from_pretrained(
-        "mmnga/webbigdata-ALMA-7B-Ja-V2-gguf",  # TODO: test "grapevine-AI/gemma-2-2b-jpn-it-gguf"
-        "*q4_0.gguf",
-        local_dir="/workspace/models",
-        cache_dir="/workspace/models",
-        n_gpu_layers=-1,
-        verbose=False,
-    )  # VRAM 6.7GB?
+    translator = Gemma2("/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it")
 
     while True:
         segment = queue.get()
         if segment is None:
             break
-        print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
-        output = translator(PROMPT_EN2JP.format(segment.text), max_tokens=128, stop=["\n"])
-        print("translated: ", output['choices'][0]['text'])
+        # print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
+        output = translator(PROMPT_EN2JP.format(segment))
+        # print("translated: ", output['choices'][0]['text'])
+        print("translated: ", output)
 
 
 class VoiceTranscriber:

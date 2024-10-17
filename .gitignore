@@ -5,3 +5,4 @@ whisper_checkpoints/
 results/
 audio_samples/
 __pycache__/
+models

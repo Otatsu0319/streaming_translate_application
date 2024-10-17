@@ -40,3 +40,80 @@ PC上で流れる音声をキャプチャしリアルタイム翻訳を実行す
 またGPUに処理がオフロードできていないため他の作業に支障をきたしそう
 
 TensorRTを活用すると速度が向上しそう
+
+## trtllm-build commands
+
+```bash
+checkpoint_dir=whisper_large_v3_fp16
+output_dir=/mnt/wsl/workspace/streaming_translate_application/models/whisper_trt_engine
+trtllm-build  --checkpoint_dir ${checkpoint_dir}/encoder \
+              --output_dir ${output_dir}/encoder \
+              --max_input_len 3000 --max_seq_len 3000 \
+              --max_batch_size 8 \
+              --moe_plugin disable \
+              --enable_xqa disable \
+              --gemm_plugin disable \
+              --bert_attention_plugin float16 \
+              --log_level warning \
+              --profiling_verbosity detailed \
+              --kv_cache_type paged \
+              --builder_force_num_profiles 0 
+
+
+trtllm-build  --checkpoint_dir ${checkpoint_dir}/decoder \
+              --output_dir ${output_dir}/decoder \
+              --max_encoder_input_len 3000 \
+              --max_beam_width 1 \
+              --max_batch_size 8 \
+              --max_seq_len 114 \
+              --max_input_len 14 \
+              --kv_cache_type paged \
+              --profiling_verbosity detailed \
+              --moe_plugin disable \
+              --enable_xqa disable \
+              --gemm_plugin float16 \
+              --log_level warning \
+              --logits_dtype float16 \
+              --bert_attention_plugin float16 \
+              --gpt_attention_plugin float16
+```
+
+```bash
+variant=2-2b-jpn # 27b
+git clone git@hf.co:google/gemma-2-2b-jpn-it
+mkdir range3/cc100-ja
+wget https://huggingface.co/datasets/range3/cc100-ja/resolve/main/train_0.parquet
+
+CKPT_PATH=gemma-2-2b-jpn-it/
+UNIFIED_CKPT_PATH=gemma-2-2b-it_trt/bf16-fp8
+ENGINE_PATH=/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16
+VOCAB_FILE_PATH=/mnt/wsl/workspace/TensorRT-LLM/examples/gemma/gemma-2-2b-jpn-it/tokenizer.model
+
+python3 convert_checkpoint.py --ckpt-type hf \
+            --model-dir ${CKPT_PATH} \
+            --dtype bfloat16 \
+            --world-size 1 \
+            --output-model-dir ${UNIFIED_CKPT_PATH}
+# -> これでsafetensorとconfigを準備する これがないとquantizeで死ぬ
+
+# [このissueに従い修正(v0.15.0.dev2024101500)](https://github.com/NVIDIA/TensorRT-LLM/issues/2327)
+
+python3 ../quantization/quantize.py \
+            --model_dir ${CKPT_PATH} \
+            --dtype bfloat16 \
+            --qformat fp8 \
+            --kv_cache_dtype fp8 \
+            --output_dir ${UNIFIED_CKPT_PATH} \
+            --tp_size 1 \
+            --calib_dataset range3/cc100-ja
+
+trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
+             --max_batch_size 8 \
+             --max_input_len 3000 \
+             --max_seq_len 3100 \
+             --kv_cache_type paged \
+             --profiling_verbosity detailed \
+             --lookup_plugin bfloat16 \
+            --gemm_plugin fp8 \
+             --output_dir ${ENGINE_PATH}
+```

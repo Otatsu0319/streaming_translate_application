@@ -37,7 +37,12 @@ class VoiceTranscriber:
     def __init__(self, speech_queue, translate=True):
         self.speech_queue = speech_queue
         # Run on GPU with FP16
-        # self.whisper_model = WhisperModel(MODEL_LABEL, device="cuda", compute_type="float16", download_root="../models")
+        # self.whisper_model = WhisperModel(
+        #     MODEL_LABEL,
+        #     device="cuda",
+        #     compute_type="float16",
+        #     download_root="../models",
+        # )
         self.whisper_model = WhisperTRTLLM(
             "/mnt/wsl/workspace/streaming_translate_application/models/whisper_trt_engine"
         )

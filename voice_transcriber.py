@@ -15,13 +15,13 @@ MODEL_LABEL = "large-v3"  # or "distil-large-v3"
 
 PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}"
 PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}"
-"/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it"
+"/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it"
 
 mp.set_start_method('spawn', force=True)
 
 
 def translate_process(queue):
-    translator = Gemma2("/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it")
+    translator = Gemma2("/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16")
 
     while True:
         segment = queue.get()
@@ -43,9 +43,7 @@ class VoiceTranscriber:
         #     compute_type="float16",
         #     download_root="../models",
         # )
-        self.whisper_model = WhisperTRTLLM(
-            "/mnt/wsl/workspace/streaming_translate_application/models/whisper_trt_engine"
-        )
+        self.whisper_model = WhisperTRTLLM("/workspace/streaming_translate_application/models/whisper_trt_engine")
         self.transcribe_log_probability_threshold = -30  # -0.4
 
         self.translate = translate

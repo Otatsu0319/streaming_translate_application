@@ -123,12 +123,14 @@ class WhisperTRTLLM(object):
         runner_kwargs = dict(
             engine_dir=engine_dir,
             is_enc_dec=True,
-            max_batch_size=16,
+            max_batch_size=8,
             max_input_len=3000,
             max_output_len=96,
             max_beam_width=1,
             debug_mode=debug_mode,
+            # kv_cache_free_gpu_memory_fraction=0.1,
             kv_cache_free_gpu_memory_fraction=0.1,
+            cross_kv_cache_fraction=0.5,
         )
         self.model_runner_cpp = ModelRunnerCpp.from_dir(**runner_kwargs)
 
@@ -246,8 +248,8 @@ if __name__ == '__main__':
     rtf = elapsed / total_duration
     s = f"RTF: {rtf:.4f}\n"
     s += f"total_duration: {total_duration:.3f} seconds\n"
-    s += f"({total_duration/3600:.2f} hours)\n"
-    s += f"processing time: {elapsed:.3f} seconds " f"({elapsed/3600:.2f} hours)\n"
+    s += f"({total_duration / 3600:.2f} hours)\n"
+    s += f"processing time: {elapsed:.3f} seconds " f"({elapsed / 3600:.2f} hours)\n"
     s += f"batch size: {args.batch_size}\n"
     s += f"num_beams: {args.num_beams}\n"
     print(s)

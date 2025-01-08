@@ -1,1 +1,3 @@
 pyVBAN >= 0.1.0
+transformers
+demucs

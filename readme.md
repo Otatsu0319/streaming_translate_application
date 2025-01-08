@@ -45,20 +45,17 @@ TensorRTを活用すると速度が向上しそう
 
 ```bash
 checkpoint_dir=whisper_large_v3_fp16
-output_dir=/mnt/wsl/workspace/streaming_translate_application/models/whisper_trt_engine
+output_dir=/workspace/streaming_translate_application/models/whisper_trt_engine
 trtllm-build  --checkpoint_dir ${checkpoint_dir}/encoder \
               --output_dir ${output_dir}/encoder \
               --max_input_len 3000 --max_seq_len 3000 \
               --max_batch_size 8 \
               --moe_plugin disable \
-              --enable_xqa disable \
               --gemm_plugin disable \
               --bert_attention_plugin float16 \
               --log_level warning \
               --profiling_verbosity detailed \
-              --kv_cache_type paged \
-              --builder_force_num_profiles 0 
-
+              --kv_cache_type paged
 
 trtllm-build  --checkpoint_dir ${checkpoint_dir}/decoder \
               --output_dir ${output_dir}/decoder \
@@ -70,7 +67,6 @@ trtllm-build  --checkpoint_dir ${checkpoint_dir}/decoder \
               --kv_cache_type paged \
               --profiling_verbosity detailed \
               --moe_plugin disable \
-              --enable_xqa disable \
               --gemm_plugin float16 \
               --log_level warning \
               --logits_dtype float16 \
@@ -86,8 +82,8 @@ wget https://huggingface.co/datasets/range3/cc100-ja/resolve/main/train_0.parque
 
 CKPT_PATH=gemma-2-2b-jpn-it/
 UNIFIED_CKPT_PATH=gemma-2-2b-it_trt/bf16-fp8
-ENGINE_PATH=/mnt/wsl/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16
-VOCAB_FILE_PATH=/mnt/wsl/workspace/TensorRT-LLM/examples/gemma/gemma-2-2b-jpn-it/tokenizer.model
+ENGINE_PATH=/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16
+VOCAB_FILE_PATH=/workspace/TensorRT-LLM/examples/gemma/gemma-2-2b-jpn-it/tokenizer.model
 
 python3 convert_checkpoint.py --ckpt-type hf \
             --model-dir ${CKPT_PATH} \
@@ -113,7 +109,6 @@ trtllm-build --checkpoint_dir ${UNIFIED_CKPT_PATH} \
              --max_seq_len 3100 \
              --kv_cache_type paged \
              --profiling_verbosity detailed \
-             --lookup_plugin bfloat16 \
-            --gemm_plugin fp8 \
+             --gemm_plugin fp8 \
              --output_dir ${ENGINE_PATH}
 ```

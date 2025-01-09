@@ -3,6 +3,7 @@ import os
 import time
 
 import numpy as np
+import rich
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -19,27 +20,25 @@ from whisper_trt import WhisperTRTLLM
 MODEL_LABEL = "large-v3"  # or "distil-large-v3"
 
 PROMPT_JP2EN = "Translate this from Japanese to English:\nJapanese: {0}"
-# PROMPT_EN2JP = "Translate this from English to Japanese:\nEnglish: {0}"
 PROMPT_EN2JP = "次の発言を英語から日本語に翻訳してください:\n\n{0}"
-"/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it"
 
 mp.set_start_method('spawn', force=True)
 
 
 def translate_process(queue):
     # translator = Gemma2("/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16")
-    # translator = pipeline('translation', model='staka/fugumt-en-ja', device="cuda")
     tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-2b-jpn-it", cache_dir="./models")
     model = AutoModelForCausalLM.from_pretrained(
         "google/gemma-2-2b-jpn-it", device_map="auto", torch_dtype=torch.bfloat16, cache_dir="./models"
     )
 
     while True:
-        segment = queue.get()
-        if segment is None:
+        packet = queue.get()
+        if packet is None:
             break
+        seg_id, prob, segment = packet
         # print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
-        st = time.time()
+        # st = time.time()
         # messages = [{"role": "user", "content": PROMPT_EN2JP.format(segment)}]
         # inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         # inputs += "**日本語訳**:\n\n"
@@ -61,7 +60,9 @@ def translate_process(queue):
 
         # output = translator(segment)
         # print("translated: ", output['choices'][0]['text'])
-        print(f"time: {time.time() - st} translated: {generated_text.strip()}")
+        # print(f"time: {time.time() - st} translated: {generated_text.strip()}")
+        rich.print(f"id: {seg_id:08}, prob: {prob:.02f}, transcribe: [cyan]{segment}[/cyan]")
+        rich.print(f"                          translated: [green]{generated_text.strip()}[/green]")
 
 
 class VoiceTranscriber:
@@ -95,7 +96,8 @@ class VoiceTranscriber:
             for i in range(len(segments)):
 
                 if self.translate:
-                    self.text_queue.put(segments[i])
+                    packet = (i, probs[i], segments[i])
+                    self.text_queue.put(packet)
                 else:
                     print("[id:%d, p:%.02f] %s" % (i, probs[i], segments[i]))
 
@@ -117,7 +119,8 @@ if __name__ == "__main__":
     text = open(os.path.join(os.path.dirname(__file__), "assets/sample_en.txt"), "r").read().split("\n")
 
     for i in range(len(text)):
-        text_queue.put(text[i])
+        packet = (i, 0.8, text[i])
+        text_queue.put(packet)
     text_queue.put(None)
     sound_queue.put(None)
 

@@ -4,13 +4,14 @@ import time
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-
-# from llama_cpp import Llama
-from gemma2_trt import Gemma2
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # from faster_whisper import WhisperModel
 from whisper_trt import WhisperTRTLLM
+
+# from llama_cpp import Llama
+# from gemma2_trt import Gemma2
+
 
 # import torch_tensorrt
 
@@ -64,7 +65,7 @@ def translate_process(queue):
 
 
 class VoiceTranscriber:
-    def __init__(self, speech_queue, translate=True):
+    def __init__(self, speech_queue, text_queue=None):
         self.speech_queue = speech_queue
         # Run on GPU with FP16
         # self.whisper_model = WhisperModel(
@@ -76,19 +77,14 @@ class VoiceTranscriber:
         self.whisper_model = WhisperTRTLLM("/workspace/streaming_translate_application/models/whisper_trt_engine")
         self.transcribe_log_probability_threshold = -30  # -0.4
 
-        self.translate = translate
-        self.text_queue = mp.Queue()
-        if self.translate:
-            self.p = mp.Process(target=translate_process, args=(self.text_queue,))
-            self.p.start()
+        if text_queue is not None:
+            self.translate = True
+            self.text_queue = text_queue
 
     def transcribe_thread(self):
         while True:
             speech = self.speech_queue.get()
             if speech is None:
-                self.text_queue.put(None)
-                if self.translate:
-                    self.p.join()
                 break
             speech = np.array(speech)
             st = time.time()
@@ -105,14 +101,25 @@ class VoiceTranscriber:
 
 
 if __name__ == "__main__":
-
+    sound_queue = mp.Queue()
     text_queue = mp.Queue()
+
     p = mp.Process(target=translate_process, args=(text_queue,))
     p.start()
+
+    vt = VoiceTranscriber(sound_queue, text_queue=text_queue)
+    vt = VoiceTranscriber(sound_queue)
+    from threading import Thread
+
+    tr_th = Thread(target=vt.transcribe_thread)
+    tr_th.start()
 
     text = open(os.path.join(os.path.dirname(__file__), "assets/sample_en.txt"), "r").read().split("\n")
 
     for i in range(len(text)):
         text_queue.put(text[i])
     text_queue.put(None)
+    sound_queue.put(None)
+
     p.join()
+    tr_th.join()

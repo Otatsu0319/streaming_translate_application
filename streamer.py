@@ -177,7 +177,6 @@ class VBANStreamingSender:
 
             self._frame_counter += 1
             self._socket.sendto(packet, (self._receiver_ip, self._port))
-            self._logger.error(f"f{self._frame_counter}: Sent {len(data)} samples")
 
         except Exception as e:
             self._logger.error(f"An exception occurred: {e}")
@@ -190,7 +189,6 @@ class VBANStreamingSender:
 
             try:
                 data = self.data_queue.get()
-                self._logger.error(f"get data {data.shape}")
                 if data is None:
                     break
                 data = data * 32768.0

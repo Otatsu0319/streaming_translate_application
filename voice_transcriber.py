@@ -89,7 +89,7 @@ class VoiceTranscriber:
             speech = np.array(speech)
             st = time.time()
             segments, probs = self.whisper_model.transcribe(
-                speech, language="ja", log_prob_threshold=self.transcribe_log_probability_threshold
+                speech, language="en", log_prob_threshold=self.transcribe_log_probability_threshold
             )
             print("transcribe time: ", time.time() - st)
             for i in range(len(segments)):

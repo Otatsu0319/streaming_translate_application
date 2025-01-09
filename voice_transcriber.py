@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 import torch
-from transformers import pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 # from llama_cpp import Llama
 from gemma2_trt import Gemma2
@@ -28,11 +28,9 @@ mp.set_start_method('spawn', force=True)
 def translate_process(queue):
     # translator = Gemma2("/workspace/streaming_translate_application/models/gemma-2-2b-jpn-it_bf16")
     # translator = pipeline('translation', model='staka/fugumt-en-ja', device="cuda")
-    translator = pipeline(
-        "text-generation",
-        model="google/gemma-2-2b-it",
-        model_kwargs={"torch_dtype": torch.bfloat16},
-        device="cuda",  # replace with "mps" to run on a Mac device
+    tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-2b-jpn-it", cache_dir="./models")
+    model = AutoModelForCausalLM.from_pretrained(
+        "google/gemma-2-2b-jpn-it", device_map="auto", torch_dtype=torch.bfloat16, cache_dir="./models"
     )
 
     while True:
@@ -41,10 +39,28 @@ def translate_process(queue):
             break
         # print("[id:%d, p:%.02f] %s" % (segment.id, segment.avg_logprob, segment.text))
         st = time.time()
-        output = translator(PROMPT_EN2JP.format(segment), return_full_text=False, max_new_tokens=1024)
+        # messages = [{"role": "user", "content": PROMPT_EN2JP.format(segment)}]
+        # inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        # inputs += "**日本語訳**:\n\n"
+        inputs = "\n".join(
+            [
+                "<bos><start_of_turn>user",
+                "次の発言を英語から日本語に翻訳してください:",
+                "",
+                f"{segment}<end_of_turn>",
+                "<start_of_turn>model",
+                "**日本語訳**:\n\n",
+            ]
+        )
+        # print(inputs)
+        inputs = tokenizer.encode(inputs, return_tensors="pt").to(model.device)
+
+        outputs = model.generate(inputs, max_new_tokens=256, stop_strings="\n", tokenizer=tokenizer)
+        generated_text = tokenizer.batch_decode(outputs[:, inputs.shape[1] :], skip_special_tokens=True)[0]
+
         # output = translator(segment)
         # print("translated: ", output['choices'][0]['text'])
-        print(f"time: {time.time() - st} translated: {output}")
+        print(f"time: {time.time() - st} translated: {generated_text.strip()}")
 
 
 class VoiceTranscriber:

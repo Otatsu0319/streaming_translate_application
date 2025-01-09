@@ -51,7 +51,9 @@ class VBANStreamingReceiver(StreamReceiver):
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind((sender_ip, port))
 
-        self._buff = []
+        buffer_size = chunk_size + pyvban.const.VBAN_DATA_MAX_SIZE // 2  # int16
+        self._seek = 0
+        self._buff = np.zeros(buffer_size, dtype=np.int16)
         self._first_check = False
 
     def _check_pyaudio(self, header: pyvban.subprotocols.audio.VBANAudioHeader):
@@ -99,23 +101,28 @@ class VBANStreamingReceiver(StreamReceiver):
         while self._running:
             try:
                 data = self.recv_once()
-
                 data = np.frombuffer(data, dtype="int16")
-                data = data / 32768.0
-                self._buff.extend(data.tolist())
+
+                data_size = len(data)
+                self._buff[self._seek : self._seek + data_size] = data
+                self._seek += data_size
+
+                if self._seek >= self.chunk_size:
+                    data = self._buff[: self.chunk_size]
+                    data = data / 32768.0
+
+                    rest_data = self._buff[self.chunk_size : self._seek]
+                    self._buff[: len(rest_data)] = rest_data
+                    self._seek = len(rest_data)
+
+                    if self.current_channels == 2:
+                        yield np.stack([data, data], axis=-1)
+                    else:
+                        yield data
 
             except Exception as e:
                 logging.error(f"An exception occurred: {e}")
                 continue
-
-            if len(self._buff) >= self.chunk_size:
-                data = self._buff[: self.chunk_size]
-                self._buff = self._buff[self.chunk_size :]
-
-                if self.current_channels == 2:
-                    yield np.array([data, data]).T
-                else:
-                    yield np.array(data)
 
 
 class VBANStreamingSender:
@@ -170,23 +177,31 @@ class VBANStreamingSender:
 
             self._frame_counter += 1
             self._socket.sendto(packet, (self._receiver_ip, self._port))
-            self._logger.debug(f"Sent {len(data)} samples")
+            self._logger.error(f"f{self._frame_counter}: Sent {len(data)} samples")
 
         except Exception as e:
             self._logger.error(f"An exception occurred: {e}")
             raise e
 
     def send_thread(self):
+        import time
+
         while True:
-            data = self.data_queue.get()
-            if data is None:
-                break
-            data = data * 32768.0
-            self._buff.extend(data.tolist())
-            for _ in range(len(self._buff) // self._samples_per_frame - 1):
-                data = self._buff[: self._samples_per_frame]
-                self._buff = self._buff[self._samples_per_frame :]
-                self.send_once(np.array(data, dtype="int16"))
+
+            try:
+                data = self.data_queue.get()
+                self._logger.error(f"get data {data.shape}")
+                if data is None:
+                    break
+                data = data * 32768.0
+                self._buff.extend(data.tolist())
+                for _ in range(len(self._buff) // self._samples_per_frame - 1):
+                    data = self._buff[: self._samples_per_frame]
+                    self._buff = self._buff[self._samples_per_frame :]
+                    time.sleep(0.011)
+                    self.send_once(np.array(data, dtype="int16"))
+            except Exception as e:
+                self._logger.error(f"An exception occurred: {e}")
 
 
 class WavStreamReceiver(StreamReceiver):
@@ -220,13 +235,28 @@ class WavStreamReceiver(StreamReceiver):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.ERROR)
     receiver = VBANStreamingReceiver(
-        "127.0.0.1", "Stream1", 6990, current_sample_rate=44100, current_channels=1, chunk_size=512
+        "127.0.0.1",
+        "Stream1",
+        6990,
+        current_sample_rate=44100,
+        current_channels=2,
+        chunk_size=332955,
+        # chunk_size=65536,
+        # chunk_size=16384,
     )
+    import multiprocessing as mp
 
-    send_queue = queue.Queue()
-    sender = VBANStreamingSender("192.168.1.206", "Stream2", 6980, data_queue=send_queue, sample_rate=44100, channels=1)
+    send_queue = mp.Queue()
+    sender = VBANStreamingSender(
+        "192.168.1.206",
+        "Stream2",
+        6980,
+        data_queue=send_queue,
+        sample_rate=16000,
+        channels=1,
+    )
     import threading
 
     # while True:
@@ -237,15 +267,25 @@ if __name__ == "__main__":
     #     print(len(data))
     #     sender.send_once(data)
     # i = 0
-
     # i += 1
     # if i == 10:
     #     break
     # send_queue.put(None)
-
     # sender.send_thread()
-
+    # th = mp.Process(target=sender.send_thread)
     th = threading.Thread(target=sender.send_thread)
     th.start()
+    counter = 0
+
     for chunk in receiver.recv_generator():
+        chunk = librosa.to_mono(chunk.T)
+        chunk = librosa.resample(chunk, orig_sr=44100, target_sr=16000)
+
+        # put_size = 1024
+        # for i in range(0, len(chunk), put_size):
+        #     send_queue.put(chunk[i : i + put_size])
         send_queue.put(chunk)
+        # counter += 1
+        # if counter == 250:
+        #     time.sleep(0.45)
+        #     counter = 0
